@@ -524,7 +524,7 @@ Write LSP config files for detected editors.
 command -> editor-setup
 ```
 
-Supported: Neovim · Helix · Emacs. For VS Code: install the extension via the marketplace.
+Supported: Vim · Neovim · Helix · Emacs. For VS Code: install the extension via the marketplace.
 
 ---
 
