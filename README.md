@@ -15,6 +15,7 @@ Bullang is a language that lets you write code once and transpile it to multiple
 ```bash
 cargo install --git https://github.com/My-sidequests/Bullang.git
 cargo install --git https://github.com/My-sidequests/Bullarchy.git
+cargo install --git https://github.com/My-sidequests/Bullarchy-gui.git
 cargo install --git https://github.com/My-sidequests/Bullscript.git
 ```
 
@@ -22,6 +23,7 @@ Reinstall over an existing version:
 ```bash
 cargo install --git https://github.com/My-sidequests/Bullang.git    --force bullang
 cargo install --git https://github.com/My-sidequests/Bullarchy.git  --force bullarchy
+cargo install --git https://github.com/My-sidequests/Bullarchy.git  --force bullarchy-gui
 cargo install --git https://github.com/My-sidequests/Bullscript.git --force bullscript
 ```
 
@@ -221,7 +223,7 @@ let add(a: i32, b: i32) -> result: i32 {
 
 - One escape block per function.
 - Cannot mix pipes and escape blocks in the same function.
-- Supported backends: `@rust` `@python` `@c` `@cpp` `@go`
+- Supported backends: `@rust` `@python` `@c` `@cpp` `@go` `@java`
 
 ---
 
@@ -480,6 +482,7 @@ command -> convert path/to/file.bu -o out.rs
 | `c` | C |
 | `cpp` | C++ |
 | `go` | Go |
+| `java` | Java |
 
 ---
 
