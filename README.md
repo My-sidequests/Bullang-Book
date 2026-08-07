@@ -27,14 +27,6 @@ cargo install --git https://github.com/My-sidequests/Bullarchy.git  --force bull
 cargo install --git https://github.com/My-sidequests/Bullscript.git --force bullscript
 ```
 
-Update from within the tools:
-```bash
-bullang update
-command -> update   # inside bullarchy
-```
-
-`bullscript` has no in-app update command — reinstall it with the `cargo install --force` command above.
-
 ---
 
 # Part 1 — The Language
@@ -278,11 +270,10 @@ let identity[T](x: T) -> result: T {
 
 # Part 2 — Bullscript
 
-BullScript is a small, pipe-only interpreted language of its own — not a
-toolbox of commands over Bullang. It borrows Bullang's pipe syntax for
-familiarity, but is its own grammar and evaluator; Bullang itself is never
-modified or extended by BullScript. `bullscript` is the interpreter
-itself — there is no command dispatcher.
+BullScript is a small, pipe-only interpreted language of its own. It borrows Bullang's pipe syntax for
+familiarity, but it has its own grammar and evaluator; Bullang itself is never
+modified or extended by BullScript. It must be seen as a simpler version of Bullang, aimed at scripting.
+The `bullscript` tool is the interpreter itself.
 
 ```bash
 bullscript
@@ -290,19 +281,18 @@ bullscript ->
 ```
 
 Running `bullscript` with no arguments drops straight into that prompt.
-This *is* the whole program.
+Enter `help` to have an overview of what can be done with this tool.
 
 ```bash
 bullscript path/to/script.busc
 ```
 
-Runs a `.busc` file non-interactively (script mode) instead.
+Runs a `.busc` script file directly, without opening the prompt window.
 
 ## The language
 
 A BullScript program — a `.busc` file, or a line typed at the prompt — is
-nothing but a sequence of pipes. There is no `let`, no functions, no
-blocks, no escape blocks:
+nothing but a sequence of pipes :
 
 ```
 ( <input>: <type>, ... ) : <callee-or-expr> -> { <name>: <type> } ;
@@ -310,8 +300,8 @@ blocks, no escape blocks:
 
 - **Every input and every created binding always carries an explicit
   type** — no inference, unlike Bullang's own pipes.
-- The middle section is either a call (`builtin::name` or `bag::name`,
-  taking the pipe's inputs as its arguments, in order) or a bare
+- The middle section is either a call - `builtin::name` or `bag::name`,
+  taking the pipe's inputs as its arguments, in order - or a bare
   expression over the pipe's own inputs (`+ - * /`, `== != < > <= >=`,
   `&& ||`, unary `-`/`!`, parens).
 - `-> {}` discards the result; `-> {name: type}` creates or overwrites
@@ -324,8 +314,8 @@ blocks, no escape blocks:
 (result: i64) : builtin::to_upper -> {out: String};
 ```
 
-(The second pipe above is a type error — `to_upper` wants a `String`, not
-an `i64`. Every step is checked.)
+The second pipe above is a type error — `to_upper` wants a `String`, not
+an `i64`. Every step is checked.
 
 ### `.busc` scripts and the bag
 
@@ -334,8 +324,8 @@ A `.busc` file *is* a sequence of pipes:
 - The **first pipe's** typed inputs are the script's parameter list.
 - The **last pipe's** binding is its return value.
 
-`.busc` scripts are interpreted every run, not compiled — no build step,
-no stored binary. The bag stores only `.busc` files; every callable
+`.busc` scripts are interpreted every run. 
+The bag stores only `.busc` files; every callable
 (builtin or bag entry) needs a declared prototype, so there's no path to
 registering an arbitrary pre-built binary as a callable name.
 
@@ -344,9 +334,12 @@ bullscript -> bag::add double.busc double
 bullscript -> (4: i64) : bag::double -> {r: i64};
 ```
 
+As showed above, we first give the path to the .busc file and it's name.
+We then can use the script for the operation we need.
+
 ### Directives
 
-Typed bare at the prompt, not prefixed with anything:
+Typed bare at the prompt, to access bullscript's tool features :
 
 | Directive | Action |
 |---|---|
@@ -371,11 +364,7 @@ not reused from it. Never stored in the bag, never removable.
 | `builtin::trim` | `(String) -> String` | Strip whitespace |
 | `builtin::out` | `(i64, String) -> bool` | Write to stream (`1` stdout, else stderr) |
 | `builtin::run` | `(String) -> bool` | Run a shell command, return success/failure, discard output |
-| `builtin::capture` | `(String) -> String` | Run a shell command, return stdout, no status info |
-
-`run` and `capture` are split rather than combined: with no tuple type, a
-single call can only bind one typed value, so status and output can't
-come back from the same call.
+| `builtin::capture` | `(String) -> String` | Run a shell command, return stdout, no status info | 
 
 ---
 
