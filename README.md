@@ -5,7 +5,7 @@ Bullang is a language that lets you write code once and transpile it to multiple
 | Tool | Role |
 |---|---|
 | `bullang` | Language definition and stdlib reference |
-| `bullscript` | Write, run, and test scripts interactively |
+| `bullscript` | A small pipe-only interpreted language — REPL and `.busc` scripts |
 | `bullarchy` | Scaffold, transpile, format, and check projects |
 
 ---
@@ -30,8 +30,10 @@ cargo install --git https://github.com/My-sidequests/Bullscript.git --force bull
 Update from within the tools:
 ```bash
 bullang update
-command -> update   # inside bullscript or bullarchy
+command -> update   # inside bullarchy
 ```
+
+`bullscript` has no in-app update command — reinstall it with the `cargo install --force` command above.
 
 ---
 
@@ -276,108 +278,104 @@ let identity[T](x: T) -> result: T {
 
 # Part 2 — Bullscript
 
-Start Bullscript by executing bullscript.
-A prompt "command ->" will be displayed.
+BullScript is a small, pipe-only interpreted language of its own — not a
+toolbox of commands over Bullang. It borrows Bullang's pipe syntax for
+familiarity, but is its own grammar and evaluator; Bullang itself is never
+modified or extended by BullScript. `bullscript` is the interpreter
+itself — there is no command dispatcher.
 
 ```bash
 bullscript
-command ->
+bullscript ->
 ```
 
-## Build
+Running `bullscript` with no arguments drops straight into that prompt.
+This *is* the whole program.
 
-Interactively write a function into a `.bu` file.
-
-```
-command -> build
-  file      -> my_file.bu
-  prototype -> let add(a: i32, b: i32) -> result: i32
-  pipe 1    -> (a, b) : a + b -> {result};
-  pipe 2    -> conclude
-
-  Preview:
-  let add(a: i32, b: i32) -> result: i32 {
-      (a, b) : a + b -> {result};
-  }
-
-  Save? (Y/n) ->
+```bash
+bullscript path/to/script.busc
 ```
 
-- Up to 5 pipes. Type `conclude` at any pipe prompt to finish early.
-- Appends to file if it already exists.
+Runs a `.busc` file non-interactively (script mode) instead.
 
----
+## The language
 
-## Run
-
-Execute a `.bu` file directly — no compilation needed.
-
-```
-command -> run script.bu
-```
-
-- Entry point: `let main() { }` — required.
-- Functions with escape blocks cannot be interpreted — use `bullarchy convert` instead.
-
-Exemple of a function to test for the run command
+A BullScript program — a `.busc` file, or a line typed at the prompt — is
+nothing but a sequence of pipes. There is no `let`, no functions, no
+blocks, no escape blocks:
 
 ```
-let main() {
-    ("hello") : builtin::to_upper -> {loud};
-    (loud) : builtin::out -> {};
-}
+( <input>: <type>, ... ) : <callee-or-expr> -> { <name>: <type> } ;
 ```
 
----
-
-## Test
-
-Build a tester binary for a compiled function.
-
-```
-command -> test
-  file          -> add.rs
-  language detected: Rust
-  function      -> add
-  test 1 input  -> 1 2
-  test 1 expect -> 3
-  test 2 input  -> conclude
-  tester name   -> add_tester
-```
-
-- Language inferred from file extension: `rs` `py` `c` `cpp` `go`
-- Installs the tester as a global binary.
-- Run it with `arrow`.
-
----
-
-## Arrow
-
-Connect two programs, or feed a file into a program.
+- **Every input and every created binding always carries an explicit
+  type** — no inference, unlike Bullang's own pipes.
+- The middle section is either a call (`builtin::name` or `bag::name`,
+  taking the pipe's inputs as its arguments, in order) or a bare
+  expression over the pipe's own inputs (`+ - * /`, `== != < > <= >=`,
+  `&& ||`, unary `-`/`!`, parens).
+- `-> {}` discards the result; `-> {name: type}` creates or overwrites
+  `name`.
+- Exactly four types: `i64`, `f64`, `bool`, `String`. No tuples, no
+  arrays.
 
 ```
-command -> arrow <first> <second> <output_file>
+(a: i64, b: i64) : builtin::add -> {result: i64};
+(result: i64) : builtin::to_upper -> {out: String};
 ```
 
-| Second argument | Behaviour |
+(The second pipe above is a type error — `to_upper` wants a `String`, not
+an `i64`. Every step is checked.)
+
+### `.busc` scripts and the bag
+
+A `.busc` file *is* a sequence of pipes:
+
+- The **first pipe's** typed inputs are the script's parameter list.
+- The **last pipe's** binding is its return value.
+
+`.busc` scripts are interpreted every run, not compiled — no build step,
+no stored binary. The bag stores only `.busc` files; every callable
+(builtin or bag entry) needs a declared prototype, so there's no path to
+registering an arbitrary pre-built binary as a callable name.
+
+```
+bullscript -> bag::add double.busc double
+bullscript -> (4: i64) : bag::double -> {r: i64};
+```
+
+### Directives
+
+Typed bare at the prompt, not prefixed with anything:
+
+| Directive | Action |
 |---|---|
-| A program | Pipes `first`'s stdout into `second`'s stdin |
-| A file | Feeds the file as stdin to `first` |
+| `help` | Print the in-prompt help |
+| `bag::add <path> <name>` | Register a `.busc` file under `<name>` (overwrites with a warning) |
+| `bag::remove <name>` | Remove a single bag entry |
+| `bag::list` | List your bag entries — builtins never appear here |
+| `record::start` | Start capturing every pipe typed, verbatim |
+| `record::end` | Stop, preview, and optionally save the recording as a new bag entry |
+| `exit` | Quit. Ctrl+D also works; either discards an in-progress recording with a warning |
 
-```
-command -> arrow add_tester ./add result.txt
-command -> arrow ./my_program input.txt result.txt
-```
+### Builtins
 
----
+A small, fixed table — separate from Bullang's own stdlib in Part 1, and
+not reused from it. Never stored in the bag, never removable.
 
-## Other commands
+| Builtin | Signature | Description |
+|---|---|---|
+| `builtin::add` | `(i64, i64) -> i64` | Addition |
+| `builtin::to_upper` | `(String) -> String` | Uppercase |
+| `builtin::to_lower` | `(String) -> String` | Lowercase |
+| `builtin::trim` | `(String) -> String` | Strip whitespace |
+| `builtin::out` | `(i64, String) -> bool` | Write to stream (`1` stdout, else stderr) |
+| `builtin::run` | `(String) -> bool` | Run a shell command, return success/failure, discard output |
+| `builtin::capture` | `(String) -> String` | Run a shell command, return stdout, no status info |
 
-| Command | Action |
-|---|---|
-| `help` | List all commands |
-| `update` | Reinstall from latest main |
-| `exit` | Quit |
+`run` and `capture` are split rather than combined: with no tuple type, a
+single call can only bind one typed value, so status and output can't
+come back from the same call.
 
 ---
 
@@ -555,7 +553,7 @@ let name(a: Type) {
 }
 ```
 
-## Pipe syntax
+## Bullang pipe syntax
 
 ```
 (a, b)   : a + b              -> {result};
@@ -565,8 +563,21 @@ let name(a: Type) {
 (x)      : some_fn            -> {};
 ```
 
+## BullScript pipe syntax
+
+Always typed, no `let`, no functions — a `.busc` file or a prompt line is
+just pipes:
+
+```
+(a: i64, b: i64) : builtin::add       -> {result: i64};
+(s: String)      : builtin::to_upper  -> {upper: String};
+(a: i64, b: i64) : bag::double        -> {sum: i64};
+(x: i64)         : x * 2              -> {};
+```
+
 ## All builtins at a glance
 
+Bullang's stdlib (Part 1):
 ```
 Math      abs  pow  powf  sqrt  log  exp  min  max  clamp
 Cond      tern
@@ -577,15 +588,22 @@ I/O       in  out  open  close  time
 System    args  exit  env  sleep
 ```
 
-## Bullscript commands
+BullScript's own fixed `builtin::*` table (Part 2) — separate, not reused
+from Bullang's:
+```
+add  to_upper  to_lower  trim  out  run  capture
+```
+
+## Bullscript directives
 
 ```
-build               Interactive function builder
-run <file.bu>       Execute a script directly
-test                Build a tester binary for a compiled function
-arrow <a> <b> <out> Connect or feed programs
-update              Reinstall from latest
-help / exit
+help                     Print the in-prompt help
+bag::add <path> <name>   Register a .busc file in the bag
+bag::remove <name>       Remove a single bag entry
+bag::list                List your bag entries
+record::start            Start capturing pipes typed at the prompt
+record::end              Stop, preview, optionally save as a bag entry
+exit                     Quit (Ctrl+D also works)
 ```
 
 ## Bullarchy commands
