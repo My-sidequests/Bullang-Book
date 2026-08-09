@@ -1,400 +1,439 @@
 # The Bullang Book
 
-Bullang is a language that lets you write code once and transpile it to multiple target languages. Three tools, three roles:
+Bullang is a language you write once and transpile to six target languages. It
+does not run your code — it generates code that a real toolchain compiles and
+runs.
 
 | Tool | Role |
 |---|---|
-| `bullang` | Language definition and stdlib reference |
+| `bullang` | The language: grammar, parser, formatter, and the builtin catalogue |
+| `bullarchy` | The toolchain: scaffold, transpile, format and check projects |
 | `bullscript` | A small pipe-only interpreted language — REPL and `.busc` scripts |
-| `bullarchy` | Scaffold, transpile, format, and check projects |
+
+`bullang` and `bullarchy` live in one repository. `bullscript` is its own
+language with its own grammar and its own interpreter, and shares no code with
+Bullang; it is described in Part 2.
 
 ---
 
 ## Installation
 
 ```bash
-cargo install --git https://github.com/My-sidequests/Bullang.git
-cargo install --git https://github.com/My-sidequests/Bullarchy.git
-cargo install --git https://github.com/My-sidequests/Bullarchy-gui.git
-cargo install --git https://github.com/My-sidequests/Bullscript.git
+cargo install --git https://github.com/The-Bullang-Foundation/Bullang.git bullang bullarchy
+cargo install --git https://github.com/The-Bullang-Foundation/Bullscript.git
 ```
 
-Reinstall over an existing version:
-```bash
-cargo install --git https://github.com/My-sidequests/Bullang.git    --force bullang
-cargo install --git https://github.com/My-sidequests/Bullarchy.git  --force bullarchy
-cargo install --git https://github.com/My-sidequests/Bullarchy.git  --force bullarchy-gui
-cargo install --git https://github.com/My-sidequests/Bullscript.git --force bullscript
-```
+Reinstall over an existing version by adding `--force`. `bullarchy update` does
+the same thing for you and rebuilds the GUI, which needs a Go toolchain.
 
 ---
 
 # Part 1 — The Language
 
+## The shape of the thing
+
+Two ideas explain almost every rule in Bullang.
+
+**It is read line by line.** One operation per bullet, no nested calls, no
+precedence to trace. `a + b + c` is not an expression; it is two bullets.
+
+**Everything must translate faithfully to all six backends.** A feature earns
+its place by having an honest counterpart in Rust, Python, C, C++, Go *and*
+Java. Features that could not — references, closures, function types, fixed
+arrays — were removed rather than approximated in five languages and faked in
+the sixth.
+
+---
+
 ## Types
 
-| Type | Description |
+| Type | Meaning |
 |---|---|
-| `i32` | 32-bit integer |
 | `i64` | 64-bit integer |
 | `f64` | 64-bit float |
-| `bool` | true / false |
+| `bool` | `true` / `false` |
 | `String` | UTF-8 string |
-| `(A, B)` | Tuple |
-| `[T; N]` | Fixed-size array |
-| `Unit` | No return value |
+| `Tuple[A, B]` | A pair. Written `Tuple[A, B]`, not `(A, B)` |
+| `()` | The unit type — no return value |
 
-T stands for Type, meaning the user can choose a type for the array. N stands for the number of slots in the array. For exemple, [i32; 4] will create an array of 4 i32 units.
+Struct and enum types are declared in `inventory.bu` and usable by name in the
+same folder and one rank above.
 
-Struct and enum types are defined in `inventory.bu` and usable by name anywhere in the same folder and one rank above.
+There is no collection type. `Vec[T]` and `[T; N]` were removed: they could be
+written in a signature but never constructed, so a function could declare a
+return value no program could produce. Collections will come back as one
+designed feature — literals, indexing, length and iteration together — or not
+at all.
+
+`()` is the only spelling of unit. `Unit` is gone.
 
 ---
 
 ## Functions
 
-Here's an example of what a function must look like.
-
 ```
-let calculus(a: i32, b: i32, c: i32) -> result: i32 {
+let calculus(a: i64, b: i64, c: i64) -> result: i64 {
     (a, b) : a + b -> {ab};
     (c, ab) : ab * c -> {result};
 }
 ```
 
-Here's an example of a function without a returned value.
+A function is `let`, a name, a parameter list, an optional output declaration,
+and a body of bullets. The output declaration names the value *and* its type:
+`-> result: i64`. Omit it entirely and the function returns nothing.
+
+The last bullet must bind the declared output, by that name. A function with no
+declared output must end in a discarding bullet:
 
 ```
-let name(param: Type) {
-    ("Hello/n") : builtin::out -> {};
+let announce() {
+    (1, "hello\n") : builtin::out -> {};
 }
 ```
 
-- All functions are always public.
-- A function body holds **up to 5 pipes**, or **one escape block** — not both.
-- The last pipe's binding is the return value. Look at the calculus function above to get it.
+`-> {}` throws the value away. `builtin::out` returns a byte count, and this
+function returns nothing, so the count is discarded — that is what `{}` says.
 
 ---
 
 ## Pipes
 
-A pipe, also known as a bullet, is one transformation step inside a function.
+A bullet is:
 
 ```
 (inputs) : expression -> {binding};
 ```
 
-| Part | Description |
-|---|---|
-| `(inputs)` | Values passed into the expression. Idents or literals. |
-| `: expression` | The transformation — arithmetic, a function call, a builtin. |
-| `-> {binding}` | Name the output. Use `{}` to discard. |
+The inputs are values the bullet reads. What the expression *does* with them
+depends on what it is, and there are exactly four cases:
 
-```
-(a, b) : a + b       -> {sum};
-(sum)  : builtin::to_string -> {sum_str};
-(sum_str) : "Result: {sum_str}\n" -> {msg};
-(1, msg) : builtin::out -> {};
-```
+| Bullet | Means |
+|---|---|
+| `(a, b) : a + b -> {sum};` | evaluate `a + b` |
+| `(a, b) : add -> {sum};` | call `add(a, b)` |
+| `(s) : builtin::to_upper -> {r};` | call the builtin with `s` |
+| `(x) : some_fn(x, 2) -> {r};` | call `some_fn(x, 2)` as written |
+
+A bare name with inputs is a call and the inputs are its arguments. Anything
+that already stands on its own — an operation, a literal, a call with its own
+argument list — is used as-is, and the inputs are simply the values it reads.
+
+A binding is assigned once. Reusing a name is an error, which is what keeps a
+bullet chain readable top to bottom.
 
 ---
 
 ## Expressions
 
+One operation per bullet:
+
 ```
-a + b     a - b     a * b     a / b     a % b
-a == b    a != b    a < b     a <= b    a > b    a >= b
-a && b    a || b    !a        -a
+(a, b) : a + b -> {sum};
+(s) : s[0] -> {first};
+(s) : s[1..4] -> {slice};
+(p) : p.x -> {x};
+(b) : !b -> {flipped};
 ```
 
-String interpolation:
+Operators: `+ - * / %`, `== != < > <= >=`, `&& ||`, unary `!` and `-`.
+
+String templates interpolate bindings by name:
+
 ```
-"hello {name}, you are {age} years old"
+(name) : "Hello, {name}!" -> {greeting};
 ```
 
-String index and slice:
-```
-(s) : s[0]    -> {first_char};
-(s) : s[1..4] -> {substr};
-```
+There is no `?`. Error propagation was removed along with the types it
+propagated.
 
 ---
 
 ## Calling other functions
 
-Pass inputs implicitly — the input list is forwarded as arguments:
 ```
-(a, b) : add   -> {result};
-(name) : shout -> {loud};
+(a, b) : add -> {sum};
+(a, b) : add(a, b) -> {sum};
 ```
+
+Both forms work; the first is idiomatic. You may call any function listed in a
+child folder's inventory. Skirmish files cannot call other functions at all —
+they are leaves.
+
+Function *references* (`&f`) and closures were removed: there is no honest
+counterpart in all six backends, and passing a function around is not something
+a line-by-line reading can follow.
 
 ---
 
 ## Builtins
 
-Use in a pipe with implicit inputs:
-```
-(s) : builtin::to_upper -> {result};
-```
+Written `builtin::name`. The core set is deliberately small — anything beyond it
+is a package installed with `bullarchy add` and declared with `#use:`.
+
+Run `bullarchy stdlib` for the current list.
 
 ### Math
+| Signature | |
+|---|---|
+| `min(a: i64, b: i64) -> i64` | smaller of two integers |
+| `max(a: i64, b: i64) -> i64` | larger of two integers |
 
-| Builtin | Signature | Description |
-|---|---|---|
-| `abs` | `abs(n) -> n` | Absolute value |
-| `pow` | `pow(base, exp) -> i64` | Integer power |
-| `powf` | `powf(base, exp) -> f64` | Float power |
-| `sqrt` | `sqrt(n) -> f64` | Square root |
-| `log` | `log(x, base) -> f64` | Logarithm |
-| `exp` | `exp(n) -> f64` | e^n |
-| `min` | `min(a, b) -> n` | Minimum |
-| `max` | `max(a, b) -> n` | Maximum |
-| `clamp` | `clamp(v, lo, hi) -> n` | Clamp value |
+`min` and `max` take two integers. They previously claimed to take an array.
 
 ### Conditions
+| Signature | |
+|---|---|
+| `tern(cond: bool, a: T, b: T) -> T` | `a` if `cond`, else `b` |
+| `swap(a: T, b: T) -> Tuple[T, T]` | the same two values, reversed |
 
-| Builtin | Signature | Description |
-|---|---|---|
-| `tern` | `tern(cond, a, b) -> a or b` | Ternary — returns a if true, b if false |
+`tern` takes a condition. The old four-argument form folded a comparison into
+the call, so you had to know the convention to see what was being tested.
 
 ### String
+| Signature | |
+|---|---|
+| `to_upper(s: String) -> String` | uppercase |
+| `to_lower(s: String) -> String` | lowercase |
+| `trim(s: String) -> String` | strip leading and trailing whitespace |
+| `starts_with(s: String, p: String) -> bool` | prefix test |
+| `ends_with(s: String, p: String) -> bool` | suffix test |
+| `replace_str(s, from, to: String) -> String` | replace every occurrence |
+| `i64_to_str(x: i64) -> String` | integer to string |
+| `str_to_i64(s: String) -> i64` | string to integer, **0 if it does not parse** |
+| `len(s: String) -> i64` | length in **characters** |
 
-| Builtin | Signature | Description |
-|---|---|---|
-| `to_upper` | `to_upper(s) -> String` | Uppercase |
-| `to_lower` | `to_lower(s) -> String` | Lowercase |
-| `trim` | `trim(s) -> String` | Strip whitespace |
-| `len` | `len(s) -> i64` | Character count |
-| `starts_with` | `starts_with(s, p) -> bool` | Prefix check |
-| `ends_with` | `ends_with(s, p) -> bool` | Suffix check |
-| `replace_str` | `replace_str(s, from, to) -> String` | Replace all occurrences |
-| `to_string` | `to_string(x) -> String` | Any value to string |
-| `parse_i64` | `parse_i64(s) -> i64` | String to integer |
+`len` counts characters on every backend, and works on strings only. It used to
+count bytes on three backends and characters on two, so a non-ASCII string gave
+different answers depending on the target.
 
-### Algorithms
+`str_to_i64` returns 0 on failure on every backend. It used to throw on Python,
+C++ and Java, so the same program aborted on three targets and continued on the
+other three.
 
-| Builtin | Signature | Description |
-|---|---|---|
-| `swap` | `swap(a, b) -> (b, a)` | Swap two values |
-| `insertion_sort` | `insertion_sort(arr) -> Array` | Sort (insertion) |
-| `quick_sort` | `quick_sort(arr) -> Array` | Sort (quicksort) |
-| `merge_sort` | `merge_sort(arr) -> Array` | Sort (mergesort) |
-| `radix_sort` | `radix_sort(arr) -> Array` | Sort (radix) |
+`i64_to_str` and `str_to_i64` were called `to_string` and `parse_i64`.
 
 ### I/O
+| Signature | |
+|---|---|
+| `in(fd: i64) -> String` | read one line; empty string at end of file |
+| `out(fd: i64, content: String) -> i64` | write; returns bytes written |
+| `open(path: String, mode: String) -> i64` | open in mode `r`, `w`, `a` or `rw` |
+| `close(fd: i64)` | close a descriptor |
+| `time() -> i64` | Unix timestamp in seconds |
 
-| Builtin | Signature | Description |
-|---|---|---|
-| `in` | `in(fd) -> String` | Read a line from fd |
-| `out` | `out(fd, s) -> i64` | Write to fd, returns bytes written |
-| `open` | `open(path, mode) -> i64` | Open file, returns fd. Modes: r w a rw |
-| `close` | `close(fd)` | Close a file descriptor |
-| `time` | `time() -> i64` | Unix timestamp in seconds |
-
-File descriptors: `0` stdin · `1` stdout · `2` stderr · `3+` opened files.
+**A file descriptor is not an operating-system descriptor.** It is an index into
+a table the generated program keeps for itself: 0, 1 and 2 are stdin, stdout and
+stderr, and `open` allocates from 3 up. That indirection is what lets the same
+program work on Windows, where native handles are not integers. Closing 0, 1 or
+2 does nothing.
 
 ### System
+| Signature | |
+|---|---|
+| `argc() -> i64` | number of command-line arguments |
+| `args(i: i64) -> String` | argument at index `i`; index 0 is the program |
+| `exit(code: i64)` | exit with a status |
+| `env(key: String) -> String` | environment variable, empty if unset |
+| `sleep(ms: i64)` | sleep for milliseconds |
+| `run(cmd: String) -> i64` | run a shell command, returns its exit code |
 
-| Builtin | Signature | Description |
-|---|---|---|
-| `args` | `args() -> Array` | Command-line arguments |
-| `exit` | `exit(code)` | Exit with code |
-| `env` | `env(key) -> String` | Read environment variable |
-| `sleep` | `sleep(ms)` | Sleep for N milliseconds |
+`args` is indexed rather than returning a list, because Bullang has no
+collection type — the old `args() -> [String]` declared a value no program could
+hold.
 
 ---
 
-## Native Escape Blocks
+## Native escape blocks
 
-You can use an escape block, for whenever you need something specific in a target language
+An escape block is a macro: opaque, copied byte for byte, never parsed and never
+reindented.
 
 ```
-let add(a: i32, b: i32) -> result: i32 {
-    @rust
-        let result = a + b;
-    @end
+let fast_path(n: i64) -> r: i64 {
+@rust
+    let r = n.wrapping_mul(2);
+    r
+@end
 }
 ```
 
-- One escape block per function.
-- Cannot mix pipes and escape blocks in the same function.
-- Supported backends: `@rust` `@python` `@c` `@cpp` `@go` `@java`
+Rules:
+
+- **One block per function.** A function is either Bullang or an escape block.
+- The backend name must be followed by a newline.
+- The block's backend must match the folder's effective `#lang`.
+- Bullang reads nothing inside it. Whatever it needs, it must be declared with
+  `#lib:` — nothing is inferred from the block's contents.
+
+Backends: `@rust`, `@python`, `@c`, `@cpp`, `@go`, `@java`. A `@c` block is
+accepted in a C++ folder.
 
 ---
 
 ## Structs
 
-Defined in `inventory.bu`:
+Declared in `inventory.bu`, not in source files:
+
 ```
-struct Point {
-    x : i32,
-    y : i32,
-}
+struct Point { x: i64, y: i64 }
 ```
 
-Field access in a pipe:
-```
-(p) : p.x -> {x_coord};
-```
+Field access is a bullet like any other: `(p) : p.x -> {x};`
+
+A type name must be unique across the whole project. Two folders declaring
+different `Point`s is an error, because generated code puts every type in one
+namespace.
 
 ---
 
 ## Enums
 
-Defined in `inventory.bu`. C-style. 
-
 ```
-enum Direction {
-    North,
-    South,
-    East,
-    West,
-}
+enum Direction { North, South, East, West }
 ```
 
-Usage:
-```
-(Direction.North) : some_function -> {result};
-```
+Used as `Direction.North`.
 
 ---
 
 ## Generics
 
 ```
-let identity[T](x: T) -> result: T {
-    (x) : x -> {result};
+let pick[T](a: T, b: T) -> r: T {
+    (a, b) : a > b -> {r};
 }
 ```
 
+Bounds are derived from what the body does: a comparison needs ordering,
+equality needs equality, and a value merely passed through needs neither.
+
 ---
 
-# Part 2 — Bullscript
+# Part 2 — BullScript
 
-BullScript is a small, pipe-only interpreted language of its own. It borrows Bullang's pipe syntax for
-familiarity, but it has its own grammar and evaluator; Bullang itself is never
-modified or extended by BullScript. It must be seen as a simpler version of Bullang, aimed at scripting.
-The `bullscript` tool is the interpreter itself.
-
-```bash
-bullscript
-bullscript ->
-```
-
-Running `bullscript` with no arguments drops straight into that prompt.
-Enter `help` to have an overview of what can be done with this tool.
-
-```bash
-bullscript path/to/script.busc
-```
-
-Runs a `.busc` script file directly, without opening the prompt window.
+BullScript is a separate language. It shares no code, no grammar and no file
+extension with Bullang: `.busc`, not `.bu`. It is interpreted, and it exists for
+the small things — a pipe at a prompt, a script you keep around.
 
 ## The language
 
-A BullScript program — a `.busc` file, or a line typed at the prompt — is
-nothing but a sequence of pipes :
+Four types: `i64`, `f64`, `bool`, `String`. One pipe form:
 
 ```
-( <input>: <type>, ... ) : <callee-or-expr> -> { <name>: <type> } ;
+(inputs) : expression-or-call -> {binding: type};
 ```
 
-- **Every input and every created binding always carries an explicit
-  type** — no inference, unlike Bullang's own pipes.
-- The middle section is either a call - `builtin::name` or `bag::name`,
-  taking the pipe's inputs as its arguments, in order - or a bare
-  expression over the pipe's own inputs (`+ - * /`, `== != < > <= >=`,
-  `&& ||`, unary `-`/`!`, parens).
-- `-> {}` discards the result; `-> {name: type}` creates or overwrites
-  `name`.
-- Exactly four types: `i64`, `f64`, `bool`, `String`. No tuples, no
-  arrays.
+Bindings carry their type, because there is no separate declaration to carry it.
 
 ```
-(a: i64, b: i64) : builtin::add -> {result: i64};
-(result: i64) : builtin::to_upper -> {out: String};
+(a: i64, b: i64) : a + b -> {sum: i64};
+(1: i64, "hello\n": String) : builtin::out -> {ok: bool};
 ```
 
-The second pipe above is a type error — `to_upper` wants a `String`, not
-an `i64`. Every step is checked.
+Every pipe is type checked before anything runs, so a type error can never
+surface after a `builtin::out` has already printed.
 
-### `.busc` scripts and the bag
+## `.busc` scripts and their parameters
 
-A `.busc` file *is* a sequence of pipes:
-
-- The **first pipe's** typed inputs are the script's parameter list.
-- The **last pipe's** binding is its return value.
-
-`.busc` scripts are interpreted every run. 
-The bag stores only `.busc` files; every callable
-(builtin or bag entry) needs a declared prototype, so there's no path to
-registering an arbitrary pre-built binary as a callable name.
-
-```
-bullscript -> bag::add double.busc double
-bullscript -> (4: i64) : bag::double -> {r: i64};
+```bash
+bullscript hello.busc
+bullscript greet.busc "world"
 ```
 
-As showed above, we first give the path to the .busc file and it's name.
-We then can use the script for the operation we need.
+**The first pipe's named slots are the script's parameters.** A literal slot is
+a value the script already carries, so it keeps it:
 
-### Directives
+```
+(1: i64, "Hello, world!\n": String) : builtin::out -> {ok: bool};
+```
 
-Typed bare at the prompt, to access bullscript's tool features :
+runs with no arguments — everything it needs is written into it. Whereas:
 
-| Directive | Action |
+```
+(1: i64, who: String) : builtin::out -> {ok: bool};
+```
+
+takes one argument, for `who`. A literal is never supplied from the command line
+and never overridden by it.
+
+That rule is different for bag entries, and deliberately so — see below.
+
+## The bag
+
+The bag is a registry of named scripts, kept in `~/.bullscript`.
+
+| Directive | |
 |---|---|
-| `help` | Print the in-prompt help |
-| `bag::add <path> <name>` | Register a `.busc` file under `<name>` (overwrites with a warning) |
-| `bag::remove <name>` | Remove a single bag entry |
-| `bag::list` | List your bag entries — builtins never appear here |
-| `record::start` | Start capturing every pipe typed, verbatim |
-| `record::end` | Stop, preview, and optionally save the recording as a new bag entry |
-| `exit` | Quit. Ctrl+D also works; either discards an in-progress recording with a warning |
+| `bag::add <path> <name>` | parse, check and store a `.busc` file under `<name>` |
+| `bag::remove <name>` | remove one entry |
+| `bag::list` | list your entries |
+| `bag::export <path>` | write every entry into one `.zip` |
+| `bag::import <path>` | read every `.busc` in a `.zip` into your bag |
 
-### Builtins
+`bag::add` copies the script in, so the bag owns its copy: moving or deleting
+the original cannot break an entry, and editing the original does not update it.
 
-A small, fixed table — separate from Bullang's own stdlib in Part 1, and
-not reused from it. Never stored in the bag, never removable.
+Call an entry from a pipe:
 
-| Builtin | Signature | Description |
-|---|---|---|
-| `builtin::add` | `(i64, i64) -> i64` | Addition |
-| `builtin::to_upper` | `(String) -> String` | Uppercase |
-| `builtin::to_lower` | `(String) -> String` | Lowercase |
-| `builtin::trim` | `(String) -> String` | Strip whitespace |
-| `builtin::out` | `(i64, String) -> bool` | Write to stream (`1` stdout, else stderr) |
-| `builtin::run` | `(String) -> bool` | Run a shell command, return success/failure, discard output |
-| `builtin::capture` | `(String) -> String` | Run a shell command, return stdout, no status info | 
+```
+(4: i64) : bag::double -> {r: i64};
+```
+
+**Here every slot is filled by the caller, literals included.** That is what
+makes an entry reusable: an entry written
+
+```
+(1: i64, who: String) : builtin::out -> {ok: bool};
+```
+
+can be sent to stdout or stderr by whoever calls it, because the `1` is a slot
+rather than a fixed value. On the command line there is no caller, which is why
+the rule differs there.
+
+### Sharing a bag
+
+```
+bag::export ~/mybag.zip      # hand the file to someone
+bag::import ~/mybag.zip      # they read it into their own bag
+```
+
+The archive is an ordinary zip that any tool can open; each entry is named after
+its bag entry, so the round trip preserves names. An entry that already exists
+is replaced.
+
+**An imported archive is trusted.** Its scripts are copied in as they are, with
+no parse or type check — vouching for an archive's coherence is yours to do,
+exactly as it is for any file you point `bag::add` at. An incoherent entry fails
+when you call it.
+
+Two things still hold, and neither is a trust check: only the *file name* of
+each archive entry is used, never the path recorded in it; and an entry whose
+name is not an identifier is skipped, because it could never be called as
+`bag::<name>`.
+
+## Recording
+
+`record::start` captures every pipe you type until `record::end`, which offers
+to save the result to the bag. Only pipes that parsed, checked and ran are kept.
 
 ---
 
 # Part 3 — Bullarchy
 
 ```bash
-bullarchy
-command ->
+bullarchy              # the GUI
+bullarchy --cli        # the REPL
+bullarchy <command>    # one command and exit
+bullarchy --help       # every command; <command> --help explains one
 ```
 
 ## Project structure
 
-A Bullang project is a folder hierarchy. Each folder has a **rank**.
+A project is a folder hierarchy, and every folder has a **rank**:
 
 ```
-war
-└── theater
-    └── battle
-        └── strategy
-            └── tactic
-                └── skirmish
+war → theater → battle → strategy → tactic → skirmish
 ```
-
-Each folder contains:
-- `inventory.bu` — rank declaration, lang, lib, struct/enum definitions, filenames with functions
-- One or more `.bu` source files
-
-A function defined at a lower rank is available one rank above.
-
-### Rank depths
 
 | Depth | Hierarchy |
 |---|---|
@@ -405,225 +444,240 @@ A function defined at a lower rank is available one rank above.
 | 5 | theater → battle → strategy → tactic → skirmish |
 | 6 | war → theater → battle → strategy → tactic → skirmish |
 
-### inventory.bu directives
+Every folder holds an `inventory.bu` and its `.bu` source files. A function
+declared at a lower rank is callable one rank above.
 
-| Directive | Description |
+### inventory.bu
+
+```
+#rank: skirmish;
+#lang: c;
+#lib: stdio.h;
+#use: mathlib;
+
+struct Point { x: i64, y: i64 }
+
+parser : parse_line, parse_word;
+```
+
+| Directive | |
 |---|---|
-| `#rank: skirmish;` | Rank of this folder — required |
-| `#lang: c;` | Target backend for this folder - optional |
-| `#lib: stdio.h;` | External library - optional |
+| `#rank:` | this folder's rank — required, and first |
+| `#lang:` | target backend for this subtree — optional |
+| `#lib:` | a native header or import **of the target language** |
+| `#use:` | a **Bullang package** installed with `bullarchy add` |
 
-After directives: struct and enum definitions, then the file and functions:
-```
-filename : function1, function2, function3;
-```
+`#lib` and `#use` are different things and are spelled differently. `#lib:
+stdio.h;` is a C include; `#lib: os/exec;` is a Go import. `#use: mathlib;` is a
+Bullang package whose builtins then become available.
+
+Nothing is inferred from your escape blocks. If a `@go` block calls
+`strings.ToUpper`, say `#lib: strings;`.
+
+### The limits
+
+These are not arbitrary; they are what keeps a project readable at a glance.
+
+| Limit | |
+|---|---|
+| 5 | sub-folders per folder |
+| 5 | source files per folder |
+| 5 | functions per file |
+| 5 | functions in `main.bu` |
+| 5 | bullets per function |
+| once | a binding may be assigned |
+
+### Language regions
+
+A subtree may declare its own `#lang`. That subtree is a **region**: the
+effective language is the nearest ancestor's that declares one.
+
+Each region is transpiled independently, to its own language, into its own
+output directory, with its own build file.
+
+**A call may not cross a region boundary.** Bullang generates no FFI, so there
+would be nothing to generate the call into. Move one of the two functions, or
+remove the `#lang` so both are in one region.
+
+`main.bu` belongs at the root of its region, and nowhere else.
 
 ---
 
-## Init
+## init
 
-Scaffold a new project.
-
-```
-command -> init my_project
-command -> init my_project --depth 3
-command -> init my_project --lang c --lib stdio.h
-command -> init my_project --blueprint blueprint.bu
+```bash
+bullarchy init my_project
+bullarchy init my_project --depth 3
+bullarchy init my_project --lang c --lib stdio.h
+bullarchy init my_project --blueprint blueprint.bu
 ```
 
-| Option | Description |
+| Option | |
 |---|---|
-| `--depth N` | Hierarchy depth 1–6. Default: 2 |
-| `--lang ext` | Target language: rs py c cpp go |
-| `--lib header` | Add a library directive (repeatable) |
-| `--blueprint file` | Init from a blueprint.bu file |
-| `--path dir` | Where to create the project |
+| `--depth N` | hierarchy depth 1–6, default 2. Ignored in blueprint mode |
+| `--lang ext` | `rs` `py` `c` `cpp` `go` `java` — the extension, not the name |
+| `--lib header` | a `#lib` entry, repeatable |
+| `--blueprint file` | build the tree from a blueprint |
+| `--path dir` | where to create it |
+
+`init` writes a `main.bu` you can run immediately, so a new project passes
+`check` and transpiles without editing anything.
+
+The project name must be an identifier. `--lang` must be an extension: `rs`, not
+`rust`. `--lib` is not validated — its spelling belongs to the target language.
 
 ---
 
-## Convert
+## convert
 
-Transpile a project or a single file.
-By default and if there's no escape blocks, convert transpile in Rust.
-
-```
-command -> convert my_project
-command -> convert my_project -e py
-command -> convert path/to/file.bu
-command -> convert path/to/file.bu -o out.rs
+```bash
+bullarchy convert my_project
+bullarchy convert my_project -e py
+bullarchy convert path/to/file.bu
+bullarchy convert path/to/file.bu -e go -o out.go
 ```
 
-| Option | Description |
+| Option | |
 |---|---|
-| `-e ext` | Choose target language for folder conversion |
-| `-n name` | Output folder name |
-| `--out dir` | Output path (project mode) |
-| `-o file` | Output file (single-file mode) |
+| `-e, --lang ext` | language override; without it, the project's `#lang` decides |
+| `-o, --out file` | output file — single-file mode only |
+
+Output is written *beside* the project, as `_<name>`. A multi-region project
+writes one directory per region.
+
+`convert` runs the same validation and type checking as `check`, so it never
+generates code for a project that would not have passed.
+
+### Single-file convert
+
+Converting one `.bu` file is the deliberate escape hatch: **language rules
+apply, project rules do not.** No inventory, no ranks, no limits. Unknown type
+names pass through unchecked. The target comes from `-e`, defaulting to Rust.
 
 ### Backends
 
-| Extension | Language |
-|---|---|
-| `rs` | Rust |
-| `py` | Python |
-| `c` | C |
-| `cpp` | C++ |
-| `go` | Go |
-| `java` | Java |
+| Extension | Language | Notes |
+|---|---|---|
+| `rs` | Rust | |
+| `py` | Python | |
+| `c` | C | see *Strings in C* below |
+| `cpp` | C++ | |
+| `go` | Go | needs Go 1.21 (`min`, `max`, `slices`) |
+| `java` | Java | |
+
+C, C++, Go and Java have no module system mirroring Bullang's folders, so their
+output is flat. Two source files that would generate the same file name are an
+error naming both.
+
+### Strings in C
+
+C has no owning string type, so a function returning `String` cannot return one
+— the buffer would have to live somewhere, and every option except the caller's
+frame is a leak or a dangling pointer.
+
+So a Bullang function returning `String` becomes a C function returning `void`
+that writes into a destination supplied first:
+
+```
+let loud(s: String) -> big: String { ... }
+```
+```c
+void loud(char *big, char* s);
+```
+
+The caller declares the buffer immediately before the call. Nothing allocates.
+
+A builtin's output size can be computed from its inputs, so its destination is
+sized exactly:
+
+```c
+char t[ft_strlen(s) + 1];
+ft_trim(t, s);
+```
+
+A *user* function's output length cannot be known in advance — the body could do
+anything — so a caller-side buffer is a fixed `BU_STR_MAX` (4096 bytes). That
+ceiling is the one real cost of the convention.
 
 ---
 
-## Fmt
+## fmt
 
-Format all `.bu` files to canonical style.
-
-```
-command -> fmt
-command -> fmt my_project
-command -> fmt --dry-run
+```bash
+bullarchy fmt
+bullarchy fmt src/parser
+bullarchy fmt --dry-run
 ```
 
-- Rewrites files in place.
-- Escape block contents are never modified.
-- `--dry-run` shows what would change without writing.
+Formats from the given folder down, or the whole project if no folder is given.
 
 ---
 
-## Check
+## check
 
-Validate and type-check from the current directory.
-
-```
-command -> check
+```bash
+bullarchy check
 ```
 
-Three passes in order:
-1. Structure — rank hierarchy, inventory consistency, function declarations
-2. Types — type checking across all bullets
-3. Format — flags any file not in canonical style
-
-Stops and reports at the first failing pass.
-
----
-
-## Editor-setup
-
-Write LSP config files for detected editors.
-
-```
-command -> editor-setup
-```
-
-Supported: Vim · Neovim · Helix · Emacs. For VS Code: install the extension via the marketplace.
+Structural validation, then type checking. Reports every error it can find, in a
+stable order.
 
 ---
 
 ## Other commands
 
-| Command | Action |
+| Command | |
 |---|---|
-| `help` | List all commands |
-| `update` | Reinstall from latest main |
-| `exit` | Quit |
+| `add` | list available packages |
+| `add <name>` | install a package from the registry |
+| `add <https://...>` | install from a git URL |
+| `remove <name>` | uninstall a package |
+| `stdlib` | list the core standard library |
+| `editor-setup` | write LSP config for Vim, Neovim, Helix and Emacs |
+| `update` | reinstall from the repository — the GUI needs Go |
+| `lsp` | run the language server on stdin/stdout |
 
 ---
 
 # Part 4 — Quick Reference
 
-## Function syntax
+## Function
 
 ```
-let name(a: Type, b: Type) -> result: Type {
-    pipe;
+let name(p: Type, q: Type) -> out: Type {
+    (p, q) : p + q -> {out};
 }
 
-let name(a: Type) {
-    pipe;
+let no_return(p: Type) {
+    (1, "text\n") : builtin::out -> {};
 }
 ```
 
-## Bullang pipe syntax
+## Bullet
 
 ```
-(a, b)   : a + b              -> {result};
-(s)      : builtin::to_upper  -> {upper};
-(a, b)   : add                -> {sum};
-("hello"): shout              -> {loud};
-(x)      : some_fn            -> {};
+(inputs) : expression -> {binding};
+(inputs) : function -> {binding};       function(inputs)
+(inputs) : builtin::name -> {binding};
+(inputs) : function(a, b) -> {binding}; as written
+(inputs) : anything -> {};              discard
 ```
 
-## BullScript pipe syntax
-
-Always typed, no `let`, no functions — a `.busc` file or a prompt line is
-just pipes:
+## BullScript pipe
 
 ```
-(a: i64, b: i64) : builtin::add       -> {result: i64};
-(s: String)      : builtin::to_upper  -> {upper: String};
-(a: i64, b: i64) : bag::double        -> {sum: i64};
-(x: i64)         : x * 2              -> {};
+(a: i64, b: i64) : a + b -> {sum: i64};
+(4: i64) : bag::double -> {r: i64};
 ```
 
-## All builtins at a glance
+## Removed, and why
 
-Bullang's stdlib (Part 1):
-```
-Math      abs  pow  powf  sqrt  log  exp  min  max  clamp
-Cond      tern
-String    to_upper  to_lower  trim  len  starts_with  ends_with
-          replace_str  to_string  parse_i64
-Algo      swap  insertion_sort  quick_sort  merge_sort  radix_sort
-I/O       in  out  open  close  time
-System    args  exit  env  sleep
-```
-
-BullScript's own fixed `builtin::*` table (Part 2) — separate, not reused
-from Bullang's:
-```
-add  to_upper  to_lower  trim  out  run  capture
-```
-
-## Bullscript directives
-
-```
-help                     Print the in-prompt help
-bag::add <path> <name>   Register a .busc file in the bag
-bag::remove <name>       Remove a single bag entry
-bag::list                List your bag entries
-record::start            Start capturing pipes typed at the prompt
-record::end              Stop, preview, optionally save as a bag entry
-exit                     Quit (Ctrl+D also works)
-```
-
-## Bullarchy commands
-
-```
-init <name> [opts]         Scaffold a project
-convert <folder|file> [opts]  Transpile
-fmt [folder] [--dry-run]   Format .bu files
-check                      Validate and type-check
-editor-setup               Write LSP config
-update                     Reinstall from latest
-help / exit
-```
-
-## inventory.bu example
-
-```
-#rank: tactic;
-#lang: rs;
-
-struct Point {
-    x : i32,
-    y : i32,
-}
-
-enum Color {
-    Red,
-    Green,
-    Blue,
-}
-
-math   : add, subtract, multiply;
-shapes : area, perimeter;
-```
+| Gone | Because |
+|---|---|
+| `Vec[T]`, `[T; N]` | a type with no values — returns as one designed feature |
+| `&f`, closures, `Fn[...]` | no honest counterpart in six backends |
+| `?` | removed with the types it propagated |
+| `Unit` | one spelling: `()` |
+| `(A, B)` as tuple syntax | `Tuple[A, B]` |
+| nested calls, `a + b + c` | one operation per bullet |
+| the interpreter | Bullang generates code; it does not run it |
