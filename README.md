@@ -333,6 +333,30 @@ Bindings carry their type, because there is no separate declaration to carry it.
 Every pipe is type checked before anything runs, so a type error can never
 surface after a `builtin::out` has already printed.
 
+## Builtins
+
+| Signature | |
+|---|---|
+| `add(a: i64, b: i64) -> i64` | sum; errors on overflow |
+| `to_upper(s: String) -> String` | uppercase |
+| `to_lower(s: String) -> String` | lowercase |
+| `trim(s: String) -> String` | strip surrounding whitespace |
+| `i64_to_str(x: i64) -> String` | integer to string |
+| `str_to_i64(s: String) -> i64` | string to integer, **0 if it does not parse** |
+| `out(fd: i64, content: String) -> bool` | write; no newline appended |
+| `in(fd: i64) -> String` | read one line, newline stripped |
+| `open(path: String, mode: String) -> i64` | open in mode `r`, `w`, `a` or `rw` |
+| `close(fd: i64) -> bool` | close a descriptor |
+| `run(cmd: String) -> bool` | run a shell command |
+| `capture(cmd: String) -> String` | run a command, return its output |
+
+This is a much smaller set than Bullang's, and not the same one. Where a name
+appears in both, it means the same thing — `str_to_i64` returns 0 on a string
+that does not parse here exactly as it does there, because two languages
+sharing a name while disagreeing on what it means would be worse than either
+choice alone. `str_to_i64` ignores surrounding whitespace, so a line read with
+`builtin::in` converts without a `trim` first.
+
 ## `.busc` scripts and their parameters
 
 ```bash
@@ -636,6 +660,30 @@ stable order.
 | `editor-setup` | write LSP config for Vim, Neovim, Helix and Emacs |
 | `update` | reinstall from the repository — the GUI needs Go |
 | `lsp` | run the language server on stdin/stdout |
+
+---
+
+## Editors
+
+```bash
+bullarchy editor-setup
+```
+
+Writes LSP configuration for Vim, Neovim, Helix and Emacs, for **both**
+languages: `.bu` is served by `bullarchy lsp`, `.busc` by `bullscript lsp`.
+BullScript is configured only if it is installed.
+
+Zed is the exception. It will not recognise a new language without an
+extension, so there is no file to write — install `zed-bullang`, and
+`zed-bullscript` for `.busc`, as dev extensions instead.
+
+VS Code has an extension for each language too.
+
+**BullScript's server** reports syntax and type errors as you type — a missing
+semicolon, an unknown builtin, a binding whose declared type does not match
+what the pipe produces. It runs the same lexer, parser and checker the
+interpreter runs, so the underline in the editor and the error at the prompt
+can never disagree.
 
 ---
 
