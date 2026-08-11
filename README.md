@@ -347,8 +347,13 @@ surface after a `builtin::out` has already printed.
 | `in(fd: i64) -> String` | read one line, newline stripped |
 | `open(path: String, mode: String) -> i64` | open in mode `r`, `w`, `a` or `rw` |
 | `close(fd: i64) -> bool` | close a descriptor |
-| `run(cmd: String) -> bool` | run a shell command |
+| `run(cmd: String) -> bool` | run a shell command; it inherits your terminal |
 | `capture(cmd: String) -> String` | run a command, return its output |
+
+`run` hands the terminal to the command, so what it prints appears where you
+can see it and it can prompt you for input. `capture` takes the output instead
+and gives it back as a String. Use `run` to make something happen, `capture` to
+read a result.
 
 `data::name.field` is not in this table because it is not a builtin — it is
 syntax. See *Data* below.
