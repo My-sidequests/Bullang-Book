@@ -350,6 +350,9 @@ surface after a `builtin::out` has already printed.
 | `run(cmd: String) -> bool` | run a shell command |
 | `capture(cmd: String) -> String` | run a command, return its output |
 
+`data::name.field` is not in this table because it is not a builtin — it is
+syntax. See *Data* below.
+
 This is a much smaller set than Bullang's, and not the same one. Where a name
 appears in both, it means the same thing — `str_to_i64` returns 0 on a string
 that does not parse here exactly as it does there, because two languages
@@ -434,6 +437,61 @@ Two things still hold, and neither is a trust check: only the *file name* of
 each archive entry is used, never the path recorded in it; and an entry whose
 name is not an identifier is skipped, because it could never be called as
 `bag::<name>`.
+
+## Data
+
+The data store is the bag's twin: same five directives, same copy-in
+semantics, kept in `~/.bullscript` alongside it. Where the bag holds scripts
+you call, the store holds JSON documents you read fields out of — a prompts
+file with an `audit` and a `prod` section, a table of settings, anything keyed.
+
+| Directive | |
+|---|---|
+| `data::add <path.json> <name>` | parse and store a `.json` file under `<name>` |
+| `data::remove <name>` | remove one document |
+| `data::list` | list your entries |
+| `data::export <path>` | write every document into one `.zip` |
+| `data::import <path>` | read every `.json` in a `.zip` into your store |
+
+Reading and writing a field is **syntax, not a builtin**. `data::<name>.<field>`
+is a value, so it goes where values go — an input slot to read, a binding to
+write:
+
+```
+(1: i64, data::prompt.audit: String) : builtin::out -> {};
+("You are a strict auditor.": String) : builtin::trim -> {data::prompt.audit: String};
+```
+
+Nested documents are reached by a longer path: `data::prompt.nested.system`.
+
+A JSON number becomes `i64` when it is whole and `f64` when it is not, since
+JSON has one number type and BullScript has two. A field holding an object, an
+array or `null` is not a BullScript value, and naming one is an error saying
+what it actually is.
+
+### The three rules
+
+**A field keeps the type it has in the document.** Writing an `i64` into a
+field that holds a String is refused. Without that, a later pipe reading the
+same field as a String would have been checked against a type the write had
+since changed.
+
+**A write may only target a field that already exists.** Otherwise
+`data::prompt.audti` would silently create a new field, and catching that typo
+before anything runs is most of what this buys. Add fields by editing the JSON
+and running `data::add` again.
+
+**A write produces nothing** for later pipes, exactly like `-> {}`.
+
+Because the document is read when the program is checked, a missing entry, a
+misspelled field, a wrong type annotation and a non-scalar field are all caught
+before a single pipe runs — and your editor underlines them as you type. A
+write takes effect when its pipe runs, like `builtin::out`, so a program that
+fails halfway leaves the writes that already happened in place.
+
+As with the bag, the store owns its copy: editing the original file afterwards
+does not change the entry. Run `data::add` again for that — it will say it
+replaced the existing one.
 
 ## Recording
 
