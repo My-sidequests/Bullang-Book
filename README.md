@@ -469,6 +469,24 @@ write:
 
 Nested documents are reached by a longer path: `data::prompt.nested.system`.
 
+When the field is not known until the script runs, name it with a variable:
+
+```
+(lang: String) : builtin::trim -> {key: String};
+(1: i64, data::norm[key]: String) : builtin::out -> {};
+```
+
+`key` must be a String and in scope, since it names a field. A `[key]` may only
+be the last step of a path — what it selects is not known before the pipe runs,
+so there is nothing to check the rest of the path against.
+
+This stays statically checked, which is the point: because a `[key]` could
+select **any** field of the object, every field must have the same type, and
+the annotation is then provably right whatever the variable turns out to hold.
+A document mixing a String and a number is refused at check time, naming the
+two fields that disagree. A key that is not a field of the document is a
+runtime error listing the fields that are.
+
 A JSON number becomes `i64` when it is whole and `f64` when it is not, since
 JSON has one number type and BullScript has two. A field holding an object, an
 array or `null` is not a BullScript value, and naming one is an error saying
