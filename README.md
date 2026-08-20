@@ -516,6 +516,49 @@ As with the bag, the store owns its copy: editing the original file afterwards
 does not change the entry. Run `data::add` again for that — it will say it
 replaced the existing one.
 
+## Programs
+
+The third store. The bag holds scripts you call, `data` holds documents you
+read fields out of, and `bin` holds compiled programs you run.
+
+| Directive | |
+|---|---|
+| `bin::add <path> <name> <build command>` | build, then store the result as `<name>` |
+| `bin::remove <name>` | remove one program |
+| `bin::list` | list your programs |
+
+```
+bin::add ./mytool mytool "gcc -O2 -o mytool main.c"
+```
+
+The build command runs in `<path>` and **must leave a file named `<name>`** —
+that file is what gets stored. Naming the artifact rather than hunting for it
+is deliberate: a build leaves object files and sometimes libraries behind, and
+from the outside every one of them looks like a program.
+
+Call it from a pipe like anything else:
+
+```
+("--check": String, "src": String) : bin::mytool -> {code: i64};
+```
+
+**Every argument is a String**, because that is what a process receives — argv
+is text. They are passed as separate arguments and never through a shell, so a
+value containing a space or a quote cannot change what runs.
+
+**The result is always the exit code**, as an `i64`. Every operating system
+guarantees a process has one, whatever language it was written in. Two things
+worth knowing: on Unix only 0–255 survives, so a program returning 300 is seen
+as 44; and a program killed by a signal has no exit code of its own, so the
+shell convention of 128 plus the signal number is used.
+
+The program inherits your terminal, so it prints where you can see it and can
+read input.
+
+There is no `bin::export`. A compiled program is tied to one operating system
+and one architecture, so an archive of them handed to someone else would
+largely not run — scripts and JSON travel, executables do not.
+
 ## Recording
 
 `record::start` captures every pipe you type until `record::end`, which offers
